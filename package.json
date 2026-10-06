@@ -1,0 +1,20 @@
+{
+  "name": "edo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "create-user": "node create-user.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.10.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "fontkit": "^2.0.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.1",
+    "pdf-lib": "^1.17.1"
+  }
+}

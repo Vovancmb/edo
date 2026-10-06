@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1419">
+<title>Проверка подлинности документа</title>
+<style>
+:root{
+  --bg:#0f1419; --panel:#161b22; --panel-2:#1c232c; --border:#2a323d;
+  --text:#e6edf3; --muted:#8b949e; --primary:#2f81f7;
+  --success:#2ea043; --warn:#d29922; --danger:#f85149; --radius:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--text);font-size:15px;line-height:1.5;
+  padding:24px 14px 60px;
+}
+.wrap{max-width:760px;margin:0 auto}
+.logo{
+  font-size:26px;font-weight:800;letter-spacing:2px;text-align:center;margin-bottom:6px;
+  background:linear-gradient(90deg,#2f81f7,#7ee787);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.sub{text-align:center;color:var(--muted);font-size:13px;margin-bottom:22px}
+.card{
+  background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+  padding:20px;margin-bottom:14px;
+}
+.card h2{margin:0 0 14px;font-size:15px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600}
+.meta{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.meta > div > span{display:block;font-size:12px;color:var(--muted);margin-bottom:2px}
+.meta > div > div{font-size:14px;word-break:break-word}
+.hash{
+  font-family:'SF Mono',Consolas,Menlo,monospace;font-size:11.5px;
+  background:var(--panel-2);border:1px solid var(--border);border-radius:6px;
+  padding:8px 10px;margin-top:6px;color:#79c0ff;word-break:break-all;
+}
+.verdict{
+  display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:var(--radius);
+  margin-bottom:14px;font-size:15px;font-weight:600;
+}
+.verdict.ok    { background:rgba(46,160,67,.12); border:1px solid rgba(46,160,67,.4); }
+.verdict.bad   { background:rgba(248,81,73,.12); border:1px solid rgba(248,81,73,.4); }
+.verdict.warn  { background:rgba(210,153,34,.12); border:1px solid rgba(210,153,34,.4); }
+.verdict .icon{font-size:30px;line-height:1}
+.verdict .text{flex:1}
+.verdict .title{display:block;font-size:15px}
+.verdict .note {display:block;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:3px}
+
+.sig{
+  background:var(--panel-2);border:1px solid var(--border);border-radius:10px;
+  padding:12px 14px;margin-bottom:10px;
+}
+.sig-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.sig-name{font-weight:600;font-size:14.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sig-badge{
+  padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;
+}
+.sig-badge.ok  { background:rgba(46,160,67,.18); color:#7ee787; }
+.sig-badge.bad { background:rgba(248,81,73,.18); color:#ff7b72; }
+.sig-badge.na  { background:rgba(139,148,158,.18); color:#c9d1d9; }
+.sig-row{font-size:12.5px;color:var(--muted);margin-top:3px}
+.sig-row b{color:var(--text);font-weight:500}
+.sig-comment{
+  margin-top:8px;padding-top:8px;border-top:1px solid var(--border);
+  font-size:13px;color:var(--text);white-space:pre-wrap;word-break:break-word;
+}
+.sig-cancel{
+  margin-top:8px;padding-top:8px;border-top:1px solid var(--border);
+  font-size:13px;color:#ff7b72;
+}
+.fingerprint{
+  font-family:'SF Mono',Consolas,Menlo,monospace;font-size:11px;color:#79c0ff;
+}
+
+.btn{
+  display:inline-block;text-decoration:none;text-align:center;
+  padding:12px 18px;border-radius:9px;font-weight:600;font-size:14px;
+  background:var(--primary);color:#fff;border:none;cursor:pointer;
+}
+.btn:hover{filter:brightness(1.1)}
+.actions{display:flex;gap:10px;flex-wrap:wrap}
+.actions .btn{flex:1;min-width:180px}
+
+.empty{text-align:center;color:var(--muted);padding:40px 20px}
+
+@media(max-width:500px){
+  .meta{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">ЭДО</div>
+  <div class="sub">Проверка подлинности документа</div>
+  <div id="root"><div class="empty">Загрузка…</div></div>
+</div>
+
+<script>
+'use strict';
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g,
+  c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+function fmtDate(s) {
+  if (!s) return '—';
+  const iso = String(s).includes('T') ? s : String(s).replace(' ', 'T') + 'Z';
+  const d = new Date(iso);
+  if (isNaN(d)) return String(s);
+  return d.toLocaleString('ru-RU', {
+    day:'2-digit', month:'2-digit', year:'numeric',
+    hour:'2-digit', minute:'2-digit'
+  });
+}
+function fmtSize(b) {
+  if (!b) return '0 Б';
+  const u = ['Б','КБ','МБ','ГБ']; let i = 0, n = b;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return n.toFixed(n < 10 && i > 0 ? 1 : 0) + ' ' + u[i];
+}
+
+function render(data) {
+  const root = document.getElementById('root');
+
+  const signed = data.signatories.filter(s => s.status === 'signed');
+  const allValid = signed.length > 0 && signed.every(s => s.signatureValid === true);
+  const anyInvalid = signed.some(s => s.signatureValid === false);
+
+  let verdictClass = 'warn';
+  let verdictIcon  = '⚠';
+  let verdictTitle = 'Проверка не пройдена';
+  let verdictNote  = 'Не удалось подтвердить подлинность всех подписей';
+
+  if (allValid && !anyInvalid) {
+    verdictClass = 'ok'; verdictIcon = '✓';
+    verdictTitle = 'Документ подлинный';
+    verdictNote  = `Все ${signed.length} ${signed.length === 1 ? 'подпись подтверждена' : 'подписей подтверждены'} криптографически`;
+  } else if (anyInvalid) {
+    verdictClass = 'bad'; verdictIcon = '✗';
+    verdictTitle = 'Подписи не совпадают';
+    verdictNote  = 'Документ мог быть изменён после подписания';
+  }
+
+  const sigRows = data.signatories.map(s => {
+    let cls = 'na', label = 'Ожидает';
+    if (s.status === 'signed' && s.signatureValid === true)  { cls = 'ok';  label = 'Подпись верна'; }
+    if (s.status === 'signed' && s.signatureValid === false) { cls = 'bad'; label = 'Подпись неверна'; }
+    if (s.status === 'cancelled') { cls = 'na'; label = 'Отменена'; }
+    return `
+      <div class="sig">
+        <div class="sig-head">
+          <div class="sig-name">${esc(s.name)}</div>
+          <span class="sig-badge ${cls}">${label}</span>
+        </div>
+        ${s.signedAt ? `<div class="sig-row">Подписано: <b>${esc(fmtDate(s.signedAt))}</b></div>` : ''}
+        ${s.keyFingerprint ? `<div class="sig-row">Отпечаток ключа: <span class="fingerprint">${esc(s.keyFingerprint)}</span></div>` : ''}
+        ${s.comment ? `<div class="sig-comment"><b>Комментарий:</b><br>${esc(s.comment)}</div>` : ''}
+        ${s.cancelReason ? `<div class="sig-cancel"><b>Причина отмены:</b> ${esc(s.cancelReason)}</div>` : ''}
+      </div>`;
+  }).join('');
+
+  root.innerHTML = `
+    <div class="verdict ${verdictClass}">
+      <div class="icon">${verdictIcon}</div>
+      <div class="text">
+        <span class="title">${verdictTitle}</span>
+        <span class="note">${verdictNote}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Документ</h2>
+      <div class="meta">
+        <div><span>Название</span><div>${esc(data.title)}</div></div>
+        <div><span>Отправитель</span><div>${esc(data.ownerName)}</div></div>
+        <div><span>Создан</span><div>${esc(fmtDate(data.createdAt))}</div></div>
+        <div><span>Утверждён</span><div>${esc(fmtDate(data.updatedAt))}</div></div>
+        <div><span>Страниц</span><div>${data.pages}</div></div>
+        <div><span>Размер</span><div>${esc(fmtSize(data.size))}</div></div>
+      </div>
+      <div class="sig-row" style="margin-top:14px">SHA-256 файла:</div>
+      <div class="hash">${esc(data.sha256)}</div>
+    </div>
+
+    <div class="card">
+      <h2>Подписи (${data.signatories.length})</h2>
+      ${sigRows || '<div class="empty">Подписей нет</div>'}
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="/api/public/file/${data.id}">Скачать подписанный PDF</a>
+    </div>
+  `;
+}
+
+(async () => {
+  const m = location.pathname.match(/^\/verify\/(\d+)/);
+  const root = document.getElementById('root');
+  if (!m) {
+    root.innerHTML = '<div class="empty">Неверная ссылка</div>';
+    return;
+  }
+  try {
+    const r = await fetch('/api/public/verify/' + m[1]);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('Ошибка ' + r.status));
+    document.title = 'Проверка: ' + data.title;
+    render(data);
+  } catch (e) {
+    root.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

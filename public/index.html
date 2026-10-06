@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1419">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ЭДО</title>
+<link rel="stylesheet" href="/style.css">
+<script>
+  // Применяем тему ДО отрисовки — чтобы не было вспышки
+  (function() {
+    try {
+      var t = localStorage.getItem('edo_theme') || 'dark';
+      if (t === 'light') document.documentElement.classList.add('theme-light');
+      else document.documentElement.classList.add('theme-dark');
+    } catch(e) {}
+  })();
+</script>
+</head>
+<body>
+
+<div id="login" class="screen login-screen">
+  <form class="login-card" id="login-form">
+    <div class="logo">ЭДО</div>
+    <p class="muted center small">Система электронного документооборота</p>
+    <label>Логин<input type="text" id="login-username" autocomplete="username" autocapitalize="none" required></label>
+    <label>Пароль<input type="password" id="login-password" autocomplete="current-password" required></label>
+    <button type="submit" class="btn primary full">Войти</button>
+    <div class="error" id="login-error"></div>
+  </form>
+</div>
+
+<div id="app" class="screen hidden">
+  <header class="topbar">
+    <div class="brand">ЭДО</div>
+    <div class="spacer"></div>
+    <div class="notif-wrap">
+      <button class="icon-btn" id="btn-notifications" aria-label="Уведомления" type="button">🔔<span class="badge-dot hidden" id="notif-badge"></span></button>
+      <div class="notif-dropdown hidden" id="notif-dropdown">
+        <div class="notif-dropdown-head">
+          <span>🔔 Уведомления</span>
+          <button type="button" class="notif-clear" id="notif-clear">Прочитать все</button>
+        </div>
+        <div class="notif-dropdown-list" id="notif-list">
+          <div class="notif-empty">Загрузка…</div>
+        </div>
+      </div>
+    </div>
+    <button class="icon-btn" id="btn-theme" aria-label="Сменить тему" title="Сменить тему">🌙</button>
+    <button class="icon-btn" id="btn-profile" aria-label="Профиль">👤</button>
+    <button class="icon-btn hidden" id="btn-admin" aria-label="Пользователи">👥</button>
+    <button class="icon-btn" id="btn-logout" aria-label="Выход">⎋</button>
+  </header>
+  <!-- Вкладки убраны — всё в канбане -->
+  <main id="main"></main>
+  <button class="fab" id="btn-new" aria-label="Новый документ">＋</button>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast" class="toast hidden"></div>
+
+<script src="/print.js"></script>
+<script src="/watermark.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
