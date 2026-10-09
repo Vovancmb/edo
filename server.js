@@ -379,6 +379,23 @@ app.post('/api/documents', auth, upload.single('file'), async (req, res) => {
     let pages = 1;
     try { pages = (await generatePreviews(docId, req.file.path, mime)) || 1; } catch (e) { console.error(e.message); }
     db.prepare('UPDATE documents SET pages = ? WHERE id = ?').run(pages, docId);
+
+    // ===== visibility =====
+    try {
+      const vu = JSON.parse(req.body.visible_user_ids  || '[]');
+      const vg = JSON.parse(req.body.visible_group_ids || '[]');
+      const insV = db.prepare('INSERT INTO document_visibility (document_id, user_id, group_id) VALUES (?, ?, ?)');
+      for (const uid of (Array.isArray(vu) ? vu : [])) {
+        const u = db.prepare('SELECT id FROM users WHERE id = ?').get(Number(uid));
+        if (u) insV.run(docId, u.id, null);
+      }
+      for (const gid of (Array.isArray(vg) ? vg : [])) {
+        const g = db.prepare('SELECT id FROM groups WHERE id = ?').get(Number(gid));
+        if (g) insV.run(docId, null, g.id);
+      }
+    } catch (e) { console.error('visibility insert:', e.message); }
+    // ======================
+
     res.json({ id: docId, pages });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Ошибка загрузки файла' }); }
 });
@@ -599,7 +616,16 @@ app.get('/api/documents/:id', auth, (req, res) => {
 
   const myKey = db.prepare('SELECT user_id FROM user_keys WHERE user_id = ?').get(req.user.id);
 
-  res.json({
+      // visibility
+    let visibleUserIds = [], visibleGroupIds = [];
+    try {
+      const vrows = db.prepare('SELECT user_id, group_id FROM document_visibility WHERE document_id = ?').all(req.params.id);
+      visibleUserIds  = vrows.filter(r => r.user_id  != null).map(r => r.user_id);
+      visibleGroupIds = vrows.filter(r => r.group_id != null).map(r => r.group_id);
+    } catch (_) {}
+    const __visExtra = { visibleUserIds, visibleGroupIds };
+
+res.json({
     id: d.id, title: d.title, status: d.status, pages: d.pages, size: d.size,
     originalName: d.original_name, mime: d.mime, createdAt: d.created_at,
     ownerId: d.owner_id, ownerName: d.owner_name, isOwner, hasKey: !!myKey,
@@ -1437,7 +1463,7 @@ app.get(/^(?!\/api).*/, (req, res) => res.sendFile(path.join(__dirname, 'public'
 
 
 // === PATCH: обновление черновика (категория, заголовок) ===
-app.patch('/api/documents/:id', auth, (req, res) => {
+app.patch('/api/documents/:id', auth, upload.single('file'), async (req, res) => {
   try {
     const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
     if (!doc) return res.status(404).json({ error: 'Документ не найден' });
@@ -1466,47 +1492,59 @@ app.patch('/api/documents/:id', auth, (req, res) => {
 
     if (!fields.length) return res.json({ ok: true });
 
-    params.push(req.params.id);
-    db.prepare(`UPDATE documents SET ${fields.join(', ')}, updated_at = datetime('now') WHERE id = ?`).run(...params);
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('PATCH /api/documents/:id error:', e);
-    res.status(500).json({ error: 'Ошибка обновления' });
-  }
-});
-
-// === PATCH: обновление черновика (категория, заголовок) ===
-app.patch('/api/documents/:id', auth, (req, res) => {
-  try {
-    const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(req.params.id);
-    if (!doc) return res.status(404).json({ error: 'Документ не найден' });
-    if (doc.owner_id !== req.user.id) return res.status(403).json({ error: 'Нет доступа' });
-    if (doc.status !== 'draft') return res.status(400).json({ error: 'Редактировать можно только черновик' });
-
-    const fields = [];
-    const params = [];
-
-    if (req.body.category_id !== undefined) {
-      const raw = req.body.category_id;
-      const cid = (raw === '' || raw === null || raw === undefined) ? null : Number(raw);
-      let valid = null;
-      if (cid && Number.isFinite(cid)) {
-        const cat = db.prepare('SELECT id FROM categories WHERE id = ?').get(cid);
-        if (cat) valid = cat.id;
-      }
-      fields.push('category_id = ?');
-      params.push(valid);
+    // Замена файла (опционально)
+    if (req.file) {
+      const fixedName = fixFilename(req.file.originalname);
+      try {
+        // удалить старый файл
+        const old = db.prepare('SELECT stored_name FROM documents WHERE id = ?').get(req.params.id);
+        if (old && old.stored_name) {
+          const oldPath = path.join(UPLOAD_DIR, old.stored_name);
+          if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+        }
+      } catch (_) {}
+      fields.push('stored_name = ?'); params.push(req.file.filename);
+      fields.push('original_name = ?'); params.push(fixedName);
+      fields.push('mime = ?'); params.push(req.file.mimetype || 'application/octet-stream');
+      fields.push('size = ?'); params.push(req.file.size);
+      // перегенерировать превью после записи в БД — сделаем ниже
+      fields.__needPreview = true;
     }
-
-    if (req.body.title !== undefined) {
-      const t = String(req.body.title || '').trim().slice(0, 200);
-      if (t) { fields.push('title = ?'); params.push(t); }
-    }
-
-    if (!fields.length) return res.json({ ok: true });
 
     params.push(req.params.id);
     db.prepare(`UPDATE documents SET ${fields.join(', ')}, updated_at = datetime('now') WHERE id = ?`).run(...params);
+
+    // Превью после замены файла
+    if (req.file) {
+      try {
+        const docRow = db.prepare('SELECT stored_name, mime FROM documents WHERE id = ?').get(req.params.id);
+        const pages = (await generatePreviews(Number(req.params.id),
+          path.join(UPLOAD_DIR, docRow.stored_name), docRow.mime)) || 1;
+        db.prepare('UPDATE documents SET pages = ? WHERE id = ?').run(pages, req.params.id);
+      } catch (e) { console.error('preview after replace:', e.message); }
+    }
+
+    // Visibility — перезапись
+    if (req.body.visible_user_ids !== undefined || req.body.visible_group_ids !== undefined) {
+      try {
+        const vu = JSON.parse(req.body.visible_user_ids  || '[]');
+        const vg = JSON.parse(req.body.visible_group_ids || '[]');
+        const tx = db.transaction(() => {
+          db.prepare('DELETE FROM document_visibility WHERE document_id = ?').run(req.params.id);
+          const insV = db.prepare('INSERT INTO document_visibility (document_id, user_id, group_id) VALUES (?, ?, ?)');
+          for (const uid of (Array.isArray(vu) ? vu : [])) {
+            const u = db.prepare('SELECT id FROM users WHERE id = ?').get(Number(uid));
+            if (u) insV.run(req.params.id, u.id, null);
+          }
+          for (const gid of (Array.isArray(vg) ? vg : [])) {
+            const g = db.prepare('SELECT id FROM groups WHERE id = ?').get(Number(gid));
+            if (g) insV.run(req.params.id, null, g.id);
+          }
+        });
+        tx();
+      } catch (e) { console.error('visibility update:', e.message); }
+    }
+
     res.json({ ok: true });
   } catch (e) {
     console.error('PATCH /api/documents/:id error:', e);

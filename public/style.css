@@ -3316,7 +3316,7 @@ input::placeholder, textarea::placeholder {
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
-  justify-content: space-between !important;
+  justify-content: flex-start !important;
   gap: 12px !important;
   padding: 12px 0 !important;
   margin: 0 0 12px 0 !important;
@@ -3343,16 +3343,26 @@ input::placeholder, textarea::placeholder {
   display: none !important;
 }
 
-/* Текст — слева, обрезается с ellipsis */
-.sheet-title > *:not(button),
-.sheet-head > *:not(button),
-.modal-title > *:not(button),
-.modal-head > *:not(button) {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* Заголовок — сразу за кнопкой, прижат к левому краю */
+.sheet-title,
+.sheet-head > .sheet-title,
+.modal-title,
+.modal-head > .modal-title {
+  flex: 0 1 auto !important;
+  min-width: 0 !important;
+  text-align: left !important;
+  justify-content: flex-start !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Кнопка — первая, не растягивается */
+.sheet-head > button,
+.sheet-head > .icon-btn,
+.sheet-head > #m-close {
+  flex: 0 0 auto !important;
+  order: 0 !important;
 }
 
 /* Тёмная тема — светлый текст */
@@ -4711,4 +4721,96 @@ nav.tabs { display: none !important; }
 }
 .theme-light .kanban-search-clear:hover {
   background: rgba(0, 0, 0, 0.08);
+}
+
+/* ========== Шапка модалки документа: ✕ и заголовок — слева, в одну строку ========== */
+.sheet-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 12px !important;
+  text-align: left !important;
+}
+
+.sheet-head .icon-btn,
+.sheet-head #m-close {
+  order: 0 !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+}
+
+.sheet-title {
+  order: 1 !important;
+  flex: 1 1 auto !important;
+  text-align: left !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* ========== Левая колонка модалки документа — влево ========== */
+.doc-modal-2col {
+  display: grid !important;
+  grid-template-columns: 380px minmax(0, 1fr) !important;
+  gap: 20px !important;
+  align-items: start !important;
+  justify-items: stretch !important;
+  width: 100% !important;
+}
+
+.doc-modal-side {
+  width: 100% !important;
+  max-width: 380px !important;
+  text-align: left !important;
+  justify-self: start !important;
+  align-self: start !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  position: sticky !important;
+  top: 8px !important;
+  box-sizing: border-box !important;
+}
+
+.doc-modal-side .section {
+  margin-top: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  text-align: left !important;
+  width: 100% !important;
+}
+
+.doc-modal-side .section h3,
+.doc-modal-side .section p,
+.doc-modal-side .section .meta-grid,
+.doc-modal-side .section .row-actions {
+  text-align: left !important;
+  margin-left: 0 !important;
+  justify-content: flex-start !important;
+}
+
+.doc-modal-side .meta-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px 18px !important;
+  width: 100% !important;
+}
+
+.doc-modal-side .row-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  justify-content: flex-start !important;
+}
+
+.doc-modal-main {
+  min-width: 0 !important;
+  justify-self: stretch !important;
+  width: 100% !important;
+}
+
+@media (max-width: 1000px) {
+  .doc-modal-2col { grid-template-columns: 1fr !important; }
+  .doc-modal-side { position: static !important; max-width: 100% !important; }
 }

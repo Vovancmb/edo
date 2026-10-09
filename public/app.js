@@ -313,7 +313,7 @@ $('#btn-logout').addEventListener('click', async () => {
 $('#btn-profile').addEventListener('click', openProfile);
 $('#btn-admin').addEventListener('click', openAdminUsers);
 $('#btn-notifications').addEventListener('click', () => switchTab('notifications'));
-$('#btn-new').addEventListener('click', () => openComposer());
+$('#btn-new').addEventListener('click', () => openUploadModal());
 $$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
 function switchTab(tab) {
@@ -390,7 +390,7 @@ function docCardRejected(d) {
 
 /* ============================================================
    КАНБАН-ДОСКА для «Моих документов»
-   4 колонки: Черновики / Ожидают / Утверждённые / Не утверждены
+   4 колонки: Мои документы / Ожидают / Утверждённые / Не утверждены
    ============================================================ */
 
 
@@ -453,6 +453,7 @@ function docCard(d, box) {
   // Кнопки для статуса draft (только владелец)
   let actions = (box === 'mine' && d.status === 'draft') ? `
     <div class="row-actions" style="margin-top:10px">
+      <button class="btn small" data-edit="${d.id}">✎ Редактировать</button>
       <button class="btn small primary" data-send="${d.id}">Отправить</button>
       <button class="btn small danger-outline" data-del="${d.id}">Удалить</button>
     </div>` : '';
@@ -1801,7 +1802,7 @@ function openAnnotationEditModal(doc, annot, onSaved) {
    ЕДИНАЯ КАНБАН-ДОСКА — все документы пользователя
    Колонки:
    1. Входящие (ждут моей подписи)
-   2. Черновики (мои, не отправлены)
+   2. Мои документы (мои, не отправлены)
    3. Ожидают подписания (я отправил, ждут подписантов)
    4. Утверждённые
    5. Не утверждённые
@@ -1864,7 +1865,7 @@ async function renderMine() {
 
     const labels = {
       inbox:    { title: '📥 Входящие',       cls: 'k-inbox' },
-      draft:    { title: '📝 Черновики',      cls: 'k-draft' },
+      draft:    { title: '📝 Мои документы',      cls: 'k-draft' },
       pending:  { title: '⏳ Ожидают',        cls: 'k-pending' },
       approved: { title: '✅ Утверждённые',   cls: 'k-approved' },
       rejected: { title: '❌ Не утверждены',  cls: 'k-rejected' }
@@ -1899,8 +1900,8 @@ async function renderMine() {
           <p style="margin-bottom:14px">У вас пока нет документов</p>
           <button class="btn primary" id="up-1">Загрузить первый документ</button>
         </div>`;
-      $('#up-1').addEventListener('click', () => openComposer());
-      $('#up-2').addEventListener('click', () => openComposer());
+      $('#up-1').addEventListener('click', () => openUploadModal());
+      $('#up-2').addEventListener('click', () => openUploadModal());
       bindKanbanToolbar();
       return;
     }
@@ -1927,7 +1928,7 @@ async function renderMine() {
         }).join('')}
       </div>`;
 
-    $('#up-2').addEventListener('click', () => openComposer());
+    $('#up-2').addEventListener('click', () => openUploadModal());
 
     // Привязка toolbar
     bindKanbanToolbar();
@@ -2248,6 +2249,9 @@ async function openComposer(existing = null) {
       </div>
       <div class="error" id="ne" style="margin:0 0 10px;min-height:0"></div>
 
+      <div class="doc-modal-2col">
+        <div class="doc-modal-side">
+
       ${doc ? `<div class="section">
         <h3>Документ</h3>
         <div class="doc-title">${esc(doc.title)}</div>
@@ -2312,12 +2316,16 @@ async function openComposer(existing = null) {
         </label>
       </div>
 
-      <div class="section">
+              </div>
+        <div class="doc-modal-main">
+<div class="section">
         <h3>${doc ? '3' : '4'}. Место подписи</h3>
         <div id="placement-hint" class="muted small" style="margin-bottom:8px"></div>
         <div class="pages" id="doc-pages"></div>
       </div>
-    `,
+            </div>
+      </div>
+`,
     onMount(body) {
       const sendBtn      = $('#send', body);
       const saveBtn      = $('#save', body);
@@ -2851,6 +2859,256 @@ async function openComposer(existing = null) {
 
 
 
+async function openEditModal(docId) {
+  let doc;
+  try { doc = await api('/api/documents/' + docId); } catch (e) { return toast(e.message, 'error'); }
+  if (!doc || doc.status !== 'draft') return toast('Редактировать можно только черновик', 'error');
+
+  let cats = [];
+  try { cats = await api('/api/categories') || []; } catch {}
+
+  const opts = ['<option value="">— Без категории —</option>']
+    .concat((cats || []).map(c => `<option value="${c.id}" ${String(c.id)===String(doc.category_id)?'selected':''}>${esc(c.name)}</option>`))
+    .join('');
+
+  openModal({
+    title: 'Редактирование документа',
+    body: `
+      <div class="section">
+        <h3>Документ</h3>
+        <label>Название
+          <input type="text" id="ed-title" maxlength="200" value="${esc(doc.title||'')}">
+        </label>
+        <label style="margin-top:10px">Категория
+          <select id="ed-cat">${opts}</select>
+        </label>
+        <label style="margin-top:10px">Заменить файл (необязательно)
+          <input type="file" id="ed-file" accept=".pdf,image/*">
+        </label>
+        <div class="error" id="ed-err" style="margin-top:10px"></div>
+      </div>
+      <div class="section">
+        <h3>Предоставить доступ</h3>
+        <div id="ed-vis"></div>
+      </div>
+      <div class="row-actions" style="margin-top:14px">
+        <button class="btn primary" id="ed-save">Сохранить</button>
+      </div>
+    `,
+    async onMount(body) {
+      const saveBtn = $('#ed-save', body);
+      const errEl   = $('#ed-err', body);
+      await renderVisibilityPicker(
+        $('#ed-vis', body),
+        doc.visibleUserIds  || [],
+        doc.visibleGroupIds || []
+      );
+      saveBtn.addEventListener('click', async () => {
+        errEl.textContent = '';
+        const t = ($('#ed-title', body).value || '').trim();
+        const c = ($('#ed-cat', body).value || '');
+        if (!t) return errEl.textContent = 'Укажите название';
+        const newFile = $('#ed-file', body).files[0];
+        const { uids, gids } = readVisibilityPicker(body);
+
+        const fd = new FormData();
+        fd.append('title', t);
+        fd.append('category_id', c);
+        fd.append('visible_user_ids',  JSON.stringify(uids));
+        fd.append('visible_group_ids', JSON.stringify(gids));
+        if (newFile) fd.append('file', newFile);
+
+        saveBtn.disabled = true;
+        try {
+          const res = await fetch('/api/documents/' + docId, {
+            method: 'PATCH',
+            credentials: 'same-origin',
+            body: fd
+          });
+          if (!res.ok) { const d = await res.json().catch(()=>({})); throw new Error(d.error || 'Ошибка'); }
+          toast('Изменения сохранены', 'success');
+          closeModal();
+          renderMine();
+        } catch (e) { errEl.textContent = e.message; saveBtn.disabled = false; }
+      });
+    }
+  });
+}
+
+
+// ====== Кто видит: multiselect пользователей и групп ======
+// ====== Модалка загрузки ======
+async function openUploadModal() {
+  let cats = [];
+  try { cats = await api('/api/categories') || []; } catch {}
+  const catOpts = ['<option value="">— Без категории —</option>']
+    .concat(cats.map(c => `<option value="${c.id}">${esc(c.name)}</option>`)).join('');
+
+  openModal({
+    title: 'Загрузка документа',
+    body: `
+      <div class="section">
+        <h3>1. Файл</h3>
+        <input type="file" id="up-file" accept=".pdf,image/*">
+        <label style="margin-top:10px">Название (необязательно)
+          <input type="text" id="up-title" maxlength="200" placeholder="Например: Договор №12">
+        </label>
+        <label style="margin-top:10px">Категория
+          <select id="up-cat">${catOpts}</select>
+        </label>
+        <div class="error" id="up-err"></div>
+      </div>
+      <div class="section">
+        <h3>2. Предоставить доступ</h3>
+        <div id="up-vis"></div>
+      </div>
+      <div class="row-actions" style="margin-top:14px">
+        <button class="btn primary" id="up-submit">Загрузить документ</button>
+      </div>
+    `,
+    async onMount(body) {
+      const errEl = $('#up-err', body);
+      await renderVisibilityPicker($('#up-vis', body), [], []);
+
+      $('#up-submit', body).addEventListener('click', async () => {
+        errEl.textContent = '';
+        const f = $('#up-file', body).files[0];
+        if (!f) return errEl.textContent = 'Выберите файл';
+        const t = ($('#up-title', body).value || '').trim();
+        const c = ($('#up-cat', body).value || '');
+        const { uids, gids } = readVisibilityPicker(body);
+
+        const fd = new FormData();
+        fd.append('file', f);
+        if (t) fd.append('title', t);
+        if (c) fd.append('category_id', c);
+        fd.append('visible_user_ids',  JSON.stringify(uids));
+        fd.append('visible_group_ids', JSON.stringify(gids));
+
+        const btn = $('#up-submit', body);
+        btn.disabled = true;
+        try {
+          const res = await fetch('/api/documents', { method: 'POST', credentials: 'same-origin', body: fd });
+          if (!res.ok) { const d = await res.json().catch(()=>({})); throw new Error(d.error || 'Ошибка загрузки'); }
+          toast('Документ добавлен в «Мои документы»', 'success');
+          closeModal();
+          if (state.tab === 'mine') renderMine(); else switchTab('mine');
+        } catch (e) { errEl.textContent = e.message; btn.disabled = false; }
+      });
+    }
+  });
+}
+
+async function renderVisibilityPicker(containerEl, selectedUserIds, selectedGroupIds) {
+  containerEl.innerHTML = '<div class="muted small">Загрузка…</div>';
+  let users = [], groups = [];
+  try { users  = await api('/api/users')  || []; } catch {}
+  try { groups = await api('/api/groups') || []; } catch {}
+
+  const uSel = new Set((selectedUserIds  || []).map(String));
+  const gSel = new Set((selectedGroupIds || []).map(String));
+
+  function buildPicker(kind, items, selSet, getName, placeholder) {
+    const list = items.map(it => {
+      const id = String(it.id);
+      const name = getName(it);
+      return `<label class="vis-opt" data-name="${esc(name.toLowerCase())}">
+        <input type="checkbox" data-${kind}="${id}" ${selSet.has(id)?'checked':''}>
+        <span>${esc(name)}</span>
+      </label>`;
+    }).join('') || `<div class="muted small" style="padding:8px 10px">Нет данных</div>`;
+
+    return `
+      <div class="vis-field">
+        <div class="vis-dropdown" data-dropdown-${kind} tabindex="0">
+          <span class="vis-value" data-value-${kind}>${esc(placeholder)}</span>
+          <span class="vis-arrow">▾</span>
+        </div>
+        <div class="vis-panel hidden" data-panel-${kind}>
+          <input type="text" class="vis-search" placeholder="🔍 Поиск..." data-search-${kind}>
+          <div class="vis-list" data-list-${kind}>${list}</div>
+        </div>
+      </div>`;
+  }
+
+  containerEl.innerHTML =
+    buildPicker('uid', users,  uSel, u => u.full_name || u.login || ('#'+u.id), 'Пользователи') +
+    buildPicker('gid', groups, gSel, g => g.name      || ('#'+g.id),            'Группы');
+
+  ['uid','gid'].forEach(kind => {
+    const dropdown = containerEl.querySelector(`[data-dropdown-${kind}]`);
+    const panel    = containerEl.querySelector(`[data-panel-${kind}]`);
+    const search   = containerEl.querySelector(`[data-search-${kind}]`);
+    const listEl   = containerEl.querySelector(`[data-list-${kind}]`);
+    const valueEl  = containerEl.querySelector(`[data-value-${kind}]`);
+    if (!dropdown) return;
+
+    const placeholder = kind === 'uid' ? 'Пользователи' : 'Группы';
+
+    function updateLabel() {
+      const checked = [...listEl.querySelectorAll(`input[data-${kind}]:checked`)];
+      if (!checked.length) { valueEl.textContent = placeholder; valueEl.classList.add('is-placeholder'); return; }
+      valueEl.classList.remove('is-placeholder');
+      if (checked.length === 1) {
+        const lbl = checked[0].closest('.vis-opt').querySelector('span').textContent;
+        valueEl.textContent = lbl;
+      } else {
+        valueEl.textContent = `${placeholder} (${checked.length})`;
+      }
+    }
+
+    function openPanel() {
+      containerEl.querySelectorAll('.vis-panel').forEach(p => p.classList.add('hidden'));
+      panel.classList.remove('hidden');
+      search.value = '';
+      listEl.querySelectorAll('.vis-opt').forEach(o => o.classList.remove('hidden'));
+      search.focus();
+    }
+    function closePanel() { panel.classList.add('hidden'); }
+
+    dropdown.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (panel.classList.contains('hidden')) openPanel(); else closePanel();
+    });
+    dropdown.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dropdown.click(); }
+      if (e.key === 'Escape') closePanel();
+    });
+
+    search.addEventListener('input', () => {
+      const q = search.value.trim().toLowerCase();
+      listEl.querySelectorAll('.vis-opt').forEach(o => {
+        o.classList.toggle('hidden', q && !(o.dataset.name || '').includes(q));
+      });
+    });
+
+    listEl.addEventListener('click', (e) => {
+      const opt = e.target.closest('.vis-opt');
+      if (!opt) return;
+      // клик по span или пустому месту — переключаем чекбокс сами
+      if (!e.target.matches('input[type=checkbox]')) {
+        e.preventDefault();
+        const cb = opt.querySelector('input[type=checkbox]');
+        cb.checked = !cb.checked;
+      }
+      updateLabel();
+    });
+
+    // Закрытие при клике вне
+    document.addEventListener('click', (e) => {
+      if (!dropdown.contains(e.target) && !panel.contains(e.target)) closePanel();
+    });
+
+    updateLabel();
+  });
+}
+
+function readVisibilityPicker(scopeEl) {
+  const uids = [...scopeEl.querySelectorAll('input[data-uid]:checked')].map(x => +x.getAttribute('data-uid'));
+  const gids = [...scopeEl.querySelectorAll('input[data-gid]:checked')].map(x => +x.getAttribute('data-gid'));
+  return { uids, gids };
+}
+
 async function deleteDocForce(id) {
   if (!confirm('Удалить документ и все его подписи? Действие необратимо.')) return;
   try {
@@ -2991,36 +3249,103 @@ function renderDoc(d) {
   openModal({
     title: d.title,
     body: `
-      ${actions}
-      <div class="section">
-        <div class="meta-grid">
-          <div><span>Статус</span><div>${statusBadge(d.status)}</div></div>
-          <div><span>Отправитель</span><div>${esc(d.ownerName)}</div></div>
-          <div><span>Создан</span><div>${fmtDate(d.createdAt)}</div></div>
-          <div><span>Размер</span><div>${fmtSize(d.size)}</div></div>
-        </div>
-        <div class="row-actions">
-          <a class="btn small primary" href="/api/documents/${d.id}/file">Скачать</a>
-          <button class="btn small" id="btn-print" type="button">Печать</button>
-          <button class="btn small" id="btn-annot" type="button">🔖 Примечания <span id="annot-count" class="badge-num"></span></button>
-        </div>
+<div class="doc-modal-2col">
+  <div class="doc-modal-side">
+    ${actions}
+    ${(d.isOwner && d.status === 'draft') ? `
+    <div class="section" id="edit-sec">
+      <h3>Название и категория</h3>
+      <label style="margin-top:6px">Название
+        <input type="text" id="doc-edit-title" maxlength="200" value="${esc(d.title||'')}">
+      </label>
+      <label style="margin-top:10px">Категория
+        <select id="doc-edit-cat">
+          <option value="">— Без категории —</option>
+        </select>
+      </label>
+      <div class="row-actions" style="margin-top:10px">
+        <button class="btn primary small" id="doc-edit-save" type="button">Сохранить</button>
       </div>
-      <div class="section">
-        <h3>Документ</h3>
-        <div class="pages">
-          ${Array.from({ length: d.pages }, (_, i) => `
-            <div class="page-wrap" data-page="${i + 1}">
-              <img class="page-img" src="/api/documents/${d.id}/pages/${i + 1}" loading="lazy" alt="">
-              <div class="page-overlay"></div>
-            </div>`).join('')}
-        </div>
+      <div class="error" id="doc-edit-err" style="min-height:0"></div>
+    </div>` : ''}
+    <div class="section">
+      <div class="meta-grid">
+        <div><span>Статус</span><div>${statusBadge(d.status)}</div></div>
+        <div><span>Отправитель</span><div>${esc(d.ownerName)}</div></div>
+        <div><span>Создан</span><div>${fmtDate(d.createdAt)}</div></div>
+        <div><span>Размер</span><div>${fmtSize(d.size)}</div></div>
       </div>
-      ${d.approvals.length ? `<div class="section">
-        <h3>Подписанты</h3>
-        <div class="approver-list">${approversHtml}</div>
-      </div>` : ''}
-    `,
+      <div class="row-actions">
+        <a class="btn small primary" href="/api/documents/${d.id}/file">Скачать</a>
+        <button class="btn small" id="btn-print" type="button">Печать</button>
+        <button class="btn small" id="btn-annot" type="button">🔖 Примечания <span id="annot-count" class="badge-num"></span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="doc-modal-main">
+    <div class="section">
+      <h3>Документ</h3>
+      <div class="pages">
+        ${Array.from({ length: d.pages }, (_, i) => `
+          <div class="page-wrap" data-page="${i + 1}">
+            <img class="page-img" src="/api/documents/${d.id}/pages/${i + 1}" loading="lazy" alt="">
+            <div class="page-overlay"></div>
+          </div>`).join('')}
+      </div>
+    </div>
+    ${d.approvals.length ? `<div class="section">
+      <h3>Подписанты</h3>
+      <div class="approver-list">${approversHtml}</div>
+    </div>` : ''}
+  </div>
+</div>
+`,
     onMount(body) {
+      // ===== Инлайн-редактирование названия и категории =====
+      const edTitle = $('#doc-edit-title', body);
+      const edCat   = $('#doc-edit-cat',   body);
+      const edSave  = $('#doc-edit-save',  body);
+      const edErr   = $('#doc-edit-err',   body);
+      if (edTitle && edCat && edSave) {
+        (async () => {
+          try {
+            const cats = await api('/api/categories') || [];
+            cats.forEach(c => {
+              const o = document.createElement('option');
+              o.value = c.id;
+              o.textContent = c.name;
+              if (String(c.id) === String(d.categoryId || d.category_id || '')) o.selected = true;
+              edCat.appendChild(o);
+            });
+          } catch (_) {}
+        })();
+
+        edSave.addEventListener('click', async () => {
+          edErr.textContent = '';
+          const t = (edTitle.value || '').trim();
+          const c = edCat.value || '';
+          if (!t) return edErr.textContent = 'Укажите название';
+          edSave.disabled = true;
+          try {
+            await api('/api/documents/' + d.id, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ title: t, category_id: c || null })
+            });
+            toast('Изменения сохранены', 'success');
+            // Обновить заголовок модалки и карточку в списке
+            const sheetTitle = document.querySelector('#modal-root .sheet-title');
+            if (sheetTitle) sheetTitle.textContent = t;
+            if (state.tab === 'mine') renderMine();
+          } catch (e) {
+            edErr.textContent = e.message;
+          } finally {
+            edSave.disabled = false;
+          }
+        });
+      }
+
       /* Штамп отправителя */
       if (d.senderSigned && d.senderPage != null) {
         const wrap = $(`.page-wrap[data-page="${d.senderPage}"]`, body);

@@ -152,3 +152,22 @@ ensureColumn('group_members', 'level_index', 'INTEGER DEFAULT 1');
 ensureColumn('notifications', 'annotation_id', 'INTEGER');
 
 export default db;
+
+// --- visibility / access ---
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_category_access (
+    user_id INTEGER NOT NULL,
+    category_id INTEGER NOT NULL,
+    PRIMARY KEY (user_id, category_id)
+  );
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS document_visibility (
+    document_id INTEGER NOT NULL,
+    user_id INTEGER,
+    group_id INTEGER
+  );
+`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_dv_doc   ON document_visibility(document_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_dv_user  ON document_visibility(user_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_dv_group ON document_visibility(group_id)`);
